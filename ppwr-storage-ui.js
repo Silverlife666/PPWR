@@ -77,6 +77,21 @@ authCard.className = 'card';
 authCard.id = 'ppwrAuth';
 if (notice) notice.insertAdjacentElement('afterend', authCard);
 
+function applyCloudState(value) {
+  s = value && typeof value === 'object' ? value : {};
+  s.archive ??= [];
+  s.componentDatabase ??= [];
+  s.translations ??= {};
+  s.componentImages ??= {};
+  s.stageImages ??= {};
+  s.components ??= [];
+  s.excluded ??= [];
+  s.pallets ??= [{ displays: 0 }];
+  s.details ??= {};
+  s.checks ??= [];
+  localStorage.setItem(K, JSON.stringify(s));
+}
+
 function renderAuthentication() {
   const current = PPWRCloud.currentUser();
   if (current?.email) {
@@ -98,8 +113,7 @@ function renderAuthentication() {
       const next = action === 'login'
         ? await PPWRCloud.signIn(email, password, s)
         : await PPWRCloud.signUp(email, password, s);
-      s = normalizeState(next);
-      localStorage.setItem(K, JSON.stringify(s));
+      applyCloudState(next);
       render();
       renderAuthentication();
     } catch (error) {
