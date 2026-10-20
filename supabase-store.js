@@ -195,7 +195,8 @@
       status("Zapisano w Supabase.");
     } catch (error) {
       console.error(error);
-      status("Nie zapisano w chmurze — zachowano lokalną kopię.");
+      const detail = String(error?.message || error?.error_description || "nieznany błąd").replace(/[\r\n]+/g, " ").slice(0, 180);
+      status(`Nie zapisano w chmurze — lokalna kopia pozostaje bezpieczna. Powód: ${detail}`);
     }
   }
 
