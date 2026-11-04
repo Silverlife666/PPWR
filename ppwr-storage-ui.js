@@ -1,3 +1,4 @@
+document.querySelector('.eyebrow')?.append(' · build pdf-20261104-2');
 /* Widok obrazów dla prywatnego Supabase Storage. W JSON przechowywana jest wyłącznie ścieżka storage://. */
 window.renderImageLists = function renderImageListsFromStorage() {
   const box = document.querySelector('#stageImages');
@@ -158,7 +159,7 @@ const pdfTitle = (text, subtitle) => ([
   { text: subtitle.toUpperCase(), style: 'subtitle' },
 ]);
 const pdfMakeTable = (headers, rows, widths) => ({
-  table: { headerRows: 1, widths, body: [headers.map(value => ({ text: value, style: 'tableHeader' })), ...rows] },
+  table: { headerRows: 1, dontBreakRows: true, widths, body: [headers.map(value => ({ text: value, style: 'tableHeader' })), ...rows] },
   layout: {
     hLineColor: () => pdfLine, vLineColor: () => pdfLine,
     fillColor: row => row === 0 ? pdfBlue : (row % 2 === 0 ? '#F6F9FC' : '#FFFFFF'),
@@ -186,7 +187,28 @@ const pdfMetric = (label, value) => ({
   }]] },
   layout: 'noBorders',
 });
-const pdfNumber = value => Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 3 });
+const pdfLang = () => document.querySelector('#pdfLanguage')?.value || 'pl';
+const pdfNumber = value => {
+  const text = Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 3 });
+  return pdfLang() === 'pl' ? text.replace(/,/g, '\u00A0') : text;
+};
+const pdfPalletRange = ids => {
+  const pl = pdfLang() === 'pl';
+  const n = ids.map(x => x + 1);
+  const contiguous = n.every((v, k) => k === 0 || v === n[k - 1] + 1);
+  const nums = n.length === 1 ? String(n[0]) : n.length > 2 && contiguous ? `${n[0]}–${n[n.length - 1]}` : pl ? n.slice(0, -1).join(', ') + ' i ' + n[n.length - 1] : n.slice(0, -1).join(', ') + ' & ' + n[n.length - 1];
+  return (pl ? (n.length === 1 ? 'Paleta ' : 'Palety ') : (n.length === 1 ? 'Pallet ' : 'Pallets ')) + nums;
+};
+const pdfPalletQty = row => {
+  const list = (s.pallets || []).map((p, i) => ({ p, i })).filter(x => Number(x.p.displays) > 0);
+  if (!(Number(row.perCarton) > 0) || !list.length) return pdfNumber(row.pallet);
+  const values = list.map(x => palletQty(row, x.p));
+  if (values.every(v => v === values[0])) return pdfNumber(values[0]);
+  const pl = pdfLang() === 'pl', unit = pl ? 'szt.' : 'pcs';
+  const groups = [];
+  values.forEach((v, k) => { const g = groups.find(x => x.v === v); if (g) g.ids.push(list[k].i); else groups.push({ v, ids: [list[k].i] }); });
+  return groups.map(g => `${pdfPalletRange(g.ids)}:\n${g.ids.length > 1 ? (pl ? 'po ' : 'each ') : ''}${pdfNumber(g.v)} ${unit}`).join('\n');
+};
 const dataUriForPdf = async value => {
   const source = PPWRCloud.imageSource(value);
   if (!source) return null;
@@ -212,7 +234,7 @@ const pdfMakeLegacyDiagram = async items => {
   const columns = 10;
   const rows = Math.max(1, Math.ceil(items.length / columns));
   const width = 1684;
-  const height = Math.max(520, 220 + rows * 290);
+  const height = Math.max(360, 135 + (rows - 1) * 255 + 148 + 40);
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -321,10 +343,10 @@ async function downloadTextPdf(kind) {
   } else {
     const componentRows = active.map((row, index) => [
       index + 1, rowText(row.name), rowText(row.level), rowText(row.material), row.raw || '',
-      pdfNumber(row.unit), pdfNumber(row.sku), pdfNumber(row.pallet), row.notes || '',
+      pdfNumber(row.unit), pdfNumber(row.sku), pdfPalletQty(row), row.notes || '',
     ]);
     const excluded = [...s.components.filter(row => row.included === false), ...s.excluded];
-    const excludedRows = excluded.map((row, index) => [index + 1, rowText(row.name), rowText(row.level), rowText(row.material), row.raw || '', pdfNumber(row.unit), pdfNumber(row.sku), pdfNumber(row.pallet)]);
+    const excludedRows = excluded.map((row, index) => [index + 1, rowText(row.name), rowText(row.level), rowText(row.material), row.raw || '', pdfNumber(row.unit), pdfNumber(row.sku), pdfPalletQty(row)]);
     const materialRows = Object.entries(materials).map(([material, value]) => [material, value.sku.toFixed(3), total.sku ? (value.sku / total.sku * 100).toFixed(1) : '0.0', (value.pallet / 1000).toFixed(3), (value.order / 1000).toFixed(3)]);
     const diagramItems = [...excluded.map(row => ({ row, number: null })), ...active.map((row, index) => ({ row, number: index + 1 }))];
     const legacyDiagram = await pdfMakeLegacyDiagram(await Promise.all(diagramItems.map(async item => ({
@@ -338,7 +360,7 @@ async function downloadTextPdf(kind) {
         [label('Produkt / pozycja', 'Product / item'), data.product, 'SKU / EAN', data.sku],
         [label('Klient / marka', 'Client / brand'), data.brand, label('Data wystawienia', 'Issue date'), date],
         [label('NIP wystawcy', 'Issuer VAT ID / NIP'), data.issuer, label('Wersja dokumentu', 'Document version'), data.version],
-        [label('Liczba SKU w zamówieniu', 'SKU units in order'), data.units || '0', label('SKU / paleta', 'SKU / pallet'), data.perPallet || '0'],
+        [label('Liczba SKU w zamówieniu', 'SKU units in order'), data.units || '0', label('SKU / dostawa', 'SKU / delivery'), data.perPallet || '0'],
       ]),
       { columns: [
         pdfMetric(label('MASA NA 1 SKU', 'MASS PER 1 SKU'), `${total.sku.toFixed(3)} g`),
@@ -346,14 +368,14 @@ async function downloadTextPdf(kind) {
         pdfMetric(label('MASA ZAMÓWIENIA', 'MASS FOR THE ORDER'), `${(total.order / 1000).toFixed(3)} kg`),
       ], columnGap: 6, margin: [0, 12, 0, 0] },
       pdfSection(label('1. Rejestr komponentów opakowania', '1. Packaging component register')),
-      pdfMakeTable([label('Lp.', 'No.'), label('Komponent opakowania', 'Packaging component'), label('Poziom', 'Level'), label('Materiał', 'Material'), label('Surowiec', 'Raw material'), label('Masa jednostkowa (g)', 'Unit mass (g)'), label('Ilość / SKU', 'Qty / SKU'), label('Ilość / paletę', 'Qty / pallet'), label('Uwagi', 'Notes')], componentRows, [20, '*', 85, 52, 94, 52, 43, 47, 70]),
+      pdfMakeTable([label('Lp.', 'No.'), label('Komponent opakowania', 'Packaging component'), label('Poziom', 'Level'), label('Materiał', 'Material'), label('Surowiec', 'Raw material'), label('Masa jednostkowa (g)', 'Unit mass (g)'), label('Ilość / SKU', 'Qty / SKU'), label('Ilość / paletę', 'Qty / pallet'), label('Uwagi', 'Notes')], componentRows, [20, '*', 85, 52, 80, 52, 43, 72, 62]),
       pdfSection(label('2. Towary i elementy wysyłki wyłączone z obliczeń PPWR', '2. Goods and shipment items excluded from PPWR calculations')),
       pdfMakeTable([label('Lp.', 'No.'), label('Towar / element wysyłki', 'Goods / shipment item'), label('Poziom / funkcja', 'Level / function'), label('Materiał', 'Material'), label('Surowiec', 'Raw material'), label('Masa jednostkowa (g)', 'Unit mass (g)'), label('Ilość / SKU', 'Qty / SKU'), label('Ilość / paletę', 'Qty / pallet')], excludedRows.length ? excludedRows : [['—', label('Brak wyłączonych pozycji', 'No excluded items'), '', '', '', '', '', '']], [20, '*', 95, 57, 105, 55, 48, 52]),
       pdfSection(label('3. Podział masy według materiałów', '3. Material mass split')),
       pdfMakeTable([label('Materiał', 'Material'), label('Masa / SKU (g)', 'Mass / SKU (g)'), label('Udział / SKU (%)', 'Share / SKU (%)'), label('Masa / paletę (kg)', 'Mass / pallet (kg)'), label('Masa zamówienia (kg)', 'Mass / order (kg)')], materialRows, ['*', 110, 110, 120, 120]),
       pdfSection(label('4. Podstawa obliczeń i informacja o pliku technicznym', '4. Calculation basis and technical-file note')),
       { text: label('Masa na SKU, paletę i całe zamówienie jest obliczana z masy jednostkowej komponentu oraz jego ilości. Raport należy przechowywać wraz z dokumentacją dostawców.', 'Mass per SKU, pallet and order is calculated from component unit mass and quantities. Retain this report with supplier documentation.'), lineHeight: 1.3 },
-      ...(diagramItems.length ? [{ text: label('5. DIAGRAM KOMPONENTÓW OPAKOWANIA', '5. PACKAGING COMPONENT DIAGRAM'), style: 'section', pageBreak: 'before', margin: [0, 8, 0, 5] }, { text: label('Ilustracja referencyjna numerowanych wierszy komponentów w tabeli.', 'Reference illustration for the numbered component rows in the table.'), color: '#51627A', fontSize: 8, margin: [0, 0, 0, 12] }, { image: legacyDiagram, fit: [770, 480], alignment: 'center' }] : []),
+      ...(diagramItems.length ? [{ text: label('5. DIAGRAM KOMPONENTÓW OPAKOWANIA', '5. PACKAGING COMPONENT DIAGRAM'), style: 'section', pageBreak: 'before', margin: [0, 8, 0, 5] }, { text: label('Ilustracja referencyjna numerowanych wierszy komponentów w tabeli.', 'Reference illustration for the numbered component rows in the table.'), color: '#51627A', fontSize: 8, margin: [0, 0, 0, 12] }, { image: legacyDiagram, fit: [770, 410], alignment: 'center' }] : []),
     ], language);
   }
   const filename = kind === 'doc'
