@@ -169,7 +169,10 @@ const pdfMakeTable = (headers, rows, widths) => ({
 const pdfMakeMetaTable = rows => ({
   table: {
     widths: ['17%', '33%', '17%', '33%'],
-    body: rows.map(row => row.map((value, index) => index % 2 === 0
+    body: rows.map(row => row.length === 2 ? [
+      { text: row[0], bold: true, fontSize: 7, color: '#203A5B', fillColor: '#E6EEF7' },
+      { text: row[1] || '—', fontSize: 7, color: pdfInk, colSpan: 3 }, {}, {},
+    ] : row.map((value, index) => index % 2 === 0
       ? { text: value, bold: true, fontSize: 7, color: '#203A5B', fillColor: '#E6EEF7' }
       : { text: value || '—', fontSize: 7, color: pdfInk }
     )),
@@ -199,6 +202,7 @@ const pdfPalletRange = ids => {
   const nums = n.length === 1 ? String(n[0]) : n.length > 2 && contiguous ? `${n[0]}–${n[n.length - 1]}` : pl ? n.slice(0, -1).join(', ') + ' i ' + n[n.length - 1] : n.slice(0, -1).join(', ') + ' & ' + n[n.length - 1];
   return (pl ? (n.length === 1 ? 'Paleta ' : 'Palety ') : (n.length === 1 ? 'Pallet ' : 'Pallets ')) + nums;
 };
+const pdfPerPallet = v => (pdfLang() === 'pl' ? String(v) : String(v).replace(/Palety (\d+)/g, 'Pallets $1').replace(/Paleta (\d+)/g, 'Pallet $1'));
 const pdfPalletQty = row => {
   const list = (s.pallets || []).map((p, i) => ({ p, i })).filter(x => palletDisplays(x.p) > 0);
   if (!(Number(row.perCarton) > 0) || !list.length) return pdfNumber(row.pallet);
@@ -373,7 +377,10 @@ async function downloadTextPdf(kind) {
         [label('Produkt / pozycja', 'Product / item'), data.product, 'SKU / EAN', data.sku],
         [label('Klient / marka', 'Client / brand'), data.brand, label('Data wystawienia', 'Issue date'), date],
         [label('NIP wystawcy', 'Issuer VAT ID / NIP'), data.issuer, label('Wersja dokumentu', 'Document version'), data.version],
-        [label('Liczba SKU w zamówieniu', 'SKU units in order'), data.units || '0', label('SKU / dostawa', 'SKU / delivery'), data.perPallet || '0'],
+        [label('Liczba SKU w zamówieniu', 'SKU units in order'), data.units || '0', label('SKU / dostawa', 'SKU / delivery'), pdfPerPallet(data.perPallet || '0')],
+        [label('Miejsce wystawienia', 'Place of issue'), data.place, label('Partia / dowód', 'Batch / evidence'), data.batch],
+        [label('Klient / odbiorca', 'Customer / consignee'), data.customer, label('VAT ID klienta', 'Customer VAT ID'), data.customerVat],
+        [label('Adres klienta', 'Customer address'), data.customerAddress],
       ]),
       { columns: [
         pdfMetric(multi ? label('ŚR. MASA NA 1 SKU (wszystkie pozycje)', 'AVG MASS PER 1 SKU (all items)') : label('MASA NA 1 SKU', 'MASS PER 1 SKU'), `${total.sku.toFixed(3)} g`),
