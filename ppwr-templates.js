@@ -95,6 +95,36 @@
     save(); render();
   }
 
+  /* ---------- startowe struktury opakowań (SKU / display, displayów / karton) ---------- */
+  const SEED_VERSION = 1;
+  const SEED = [
+    ['Rolls z filtrem', 16, 24], ['Rolls bez filtra', 24, 24],
+    ['Bletka z filtrem', 24, 24], ['Bletka bez filtra', 50, 24],
+    ['Beuz', 24, 20], ['Filtry Carbon Box', 14, 96, 10],
+  ];
+  const byName = name => tpl().products.find(p => String(p.name || '').trim().toLowerCase() === String(name).trim().toLowerCase());
+  function upsertStructure(name, spd, dpc, pcs) {
+    let t = byName(name);
+    if (!t) { t = { id: uid('tpl'), name: String(name).trim(), spd: '', dpc: '', components: [] }; tpl().products.push(t); }
+    if (N(spd) > 0) t.spd = N(spd);
+    if (N(dpc) > 0) t.dpc = N(dpc);
+    if (N(pcs) > 0) t.pcs = N(pcs);
+    return t;
+  }
+  function seedStructures() {
+    const T = tpl();
+    if (N(T.structSeed) >= SEED_VERSION) return false;
+    SEED.forEach(([name, spd, dpc, pcs]) => {
+      const t = byName(name);
+      if (!t) { upsertStructure(name, spd, dpc, pcs); return; }
+      if (!(N(t.spd) > 0)) t.spd = spd;
+      if (!(N(t.dpc) > 0)) t.dpc = dpc;
+      if (pcs && !(N(t.pcs) > 0)) t.pcs = pcs;
+    });
+    T.structSeed = SEED_VERSION;
+    return true;
+  }
+
   /* ---------- UI: edytor szablonów ---------- */
   const h = html => { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstElementChild; };
   const libRows = () => [...Object.values(componentLibrary).flat(), ...(s.componentDatabase || [])];
@@ -129,6 +159,36 @@
     sel.innerHTML = lib.map((x, i) => '<option value="' + i + '">' + esc(x.name) + ' · ' + esc(x.material) + ' · ' + N(x.unit).toFixed(2) + ' g</option>').join('');
     box.querySelector('.add-lib').onclick = () => { const b = lib[N(sel.value)]; if (!b) return; rows.push({ ...strip(b), included: !standardNonPackaging.has(b.name) }); save(); redraw(); };
     box.querySelector('.add-empty').onclick = () => { rows.push({ included: true }); save(); redraw(); };
+    return box;
+  }
+
+  function structuresBlock() {
+    const box = h('<div class="tpl-box struct-box"><p class="hint" style="margin-top:0">Szybkie wprowadzanie struktur opakowań: jeden wiersz = jeden produkt (szablon). „SKU / display” to liczba jednostek opakowania jednostkowego w displayu, „Sztuk w jednostce” jest informacyjne (np. 10 sztuk w boxie). Komponenty opakowania dodasz niżej, w szablonie produktu.</p><div class="table-wrap"><table style="min-width:680px"><thead><tr><th>Produkt (nazwa szablonu)</th><th>SKU / display</th><th>Displayów / karton</th><th>Sztuk w jednostce</th><th>W kartonie</th><th></th></tr></thead><tbody></tbody></table></div><div class="tpl-tools"><button type="button" class="primary add-struct">＋ Dodaj strukturę</button></div><details><summary>Wklej wiele z arkusza</summary><p class="hint">Jeden produkt w wierszu, kolumny: nazwa, SKU / display, displayów / karton, sztuk w jednostce (opcjonalnie). Rozdzielone tabulatorem lub średnikiem. Istniejący produkt o tej samej nazwie zostanie zaktualizowany.</p><textarea class="paste-struct" rows="5" placeholder="Cones 12&#9;12&#9;24"></textarea><div class="tpl-tools"><button type="button" class="paste-go">Wczytaj wklejone wiersze</button></div></details></div>');
+    const body = box.querySelector('tbody');
+    const total = t => { const u = N(t.spd) * N(t.dpc); return u > 0 ? u.toLocaleString('pl-PL') + ' jedn.' + (N(t.pcs) > 0 ? ' · ' + (u * N(t.pcs)).toLocaleString('pl-PL') + ' szt.' : '') : '—'; };
+    tpl().products.forEach(t => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td><input data-f="name"></td><td><input data-f="spd" type="number" min="1" step="1"></td><td><input data-f="dpc" type="number" min="1" step="1"></td><td><input data-f="pcs" type="number" min="1" step="1"></td><td data-t></td><td><button type="button" class="delete" title="Usuń szablon">×</button></td>';
+      const tt = tr.querySelector('[data-t]'); tt.textContent = total(t);
+      tr.querySelectorAll('[data-f]').forEach(x => {
+        const k = x.dataset.f; x.value = t[k] ?? '';
+        x.oninput = () => { t[k] = k === 'name' ? x.value : (N(x.value) > 0 ? N(x.value) : ''); tt.textContent = total(t); save(); };
+        if (k === 'name') x.onchange = renderTemplates;
+      });
+      tr.querySelector('.delete').onclick = () => {
+        if (!confirm('Usunąć szablon „' + (t.name || '') + '” razem z jego komponentami i regułami dopasowania? Komponenty już wstawione do dokumentu zostaną.')) return;
+        tpl().products = tpl().products.filter(x => x.id !== t.id); s.rules = s.rules.filter(r => r.templateId !== t.id); save(); renderTemplates();
+      };
+      body.append(tr);
+    });
+    box.querySelector('.add-struct').onclick = () => { const t = { id: uid('tpl'), name: 'Nowy towar', spd: '', dpc: '', components: [] }; tpl().products.push(t); openSet.add(t.id); save(); renderTemplates(); };
+    box.querySelector('.paste-go').onclick = () => {
+      const lines = box.querySelector('.paste-struct').value.split(/\r?\n/).map(l => l.split(/\t|;/).map(x => x.trim())).filter(c => c[0]);
+      let done = 0;
+      lines.forEach(c => { if (!(N(String(c[1] || '').replace(',', '.')) > 0) && !(N(String(c[2] || '').replace(',', '.')) > 0)) return; upsertStructure(c[0], String(c[1] || '').replace(',', '.'), String(c[2] || '').replace(',', '.'), String(c[3] || '').replace(',', '.')); done++; });
+      if (!done) return alert('Nie rozpoznano żadnego wiersza. Użyj formatu: nazwa ⇥ SKU / display ⇥ displayów / karton.');
+      save(); renderTemplates();
+    };
     return box;
   }
 
@@ -238,7 +298,7 @@
     if (!card) { card = document.createElement('section'); card.id = 'templatesCard'; card.className = 'card tpl-card'; anchor.before(card); }
     tpl();
     card.innerHTML = '<div class="heading"><div><h2>Szablony produktów i wysyłki</h2><p>Szablon produktu to komponenty jednego towaru (np. okładka, kartonik, display, karton zbiorczy) wraz z jego „SKU / display” i „Displayów / karton”. Szablon wysyłki to elementy wspólne dla palety. Po imporcie faktury każda pozycja dostaje komponenty własnego szablonu — liczone tylko dla niej.</p></div></div>';
-    card.append(h('<h3>Szablony produktów</h3>'));
+    card.append(h('<h3>Struktury produktów (SKU / display, displayów / karton)</h3>'), structuresBlock(), h('<h3>Szablony produktów (komponenty)</h3>'));
     tpl().products.forEach(t => card.append(productBox(t)));
     const add = h('<button type="button" class="primary">+ Nowy szablon produktu</button>');
     add.onclick = () => { const t = { id: uid('tpl'), name: 'Nowy towar', spd: '', dpc: '', components: [] }; tpl().products.push(t); openSet.add(t.id); save(); renderTemplates(); };
@@ -271,9 +331,10 @@
   const baseCalc = window.renderCalc;
   window.renderCalc = function () { baseCalc.apply(this, arguments); renderItemMass(); };
   const baseRender = window.render;
-  window.render = function () { baseRender.apply(this, arguments); renderTemplates(); };
+  window.render = function () { if (seedStructures()) save(); baseRender.apply(this, arguments); renderTemplates(); };
 
   window.PPWRTemplates = { list, get, hasAny, match, remember, fillDefaults, applyImport, applyProductToItem, applyShipping };
+  if (seedStructures()) save();
   renderTemplates();
   renderItemMass();
 })();
