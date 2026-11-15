@@ -333,7 +333,7 @@
   const baseRender = window.render;
   window.render = function () { if (seedStructures()) save(); baseRender.apply(this, arguments); renderTemplates(); };
 
-  window.PPWRTemplates = { list, get, hasAny, match, remember, fillDefaults, applyImport, applyProductToItem, applyShipping };
+  window.PPWRTemplates = { list, get, hasAny, match, remember, fillDefaults, applyImport, applyProductToItem, applyShipping, byName, upsertStructure };
   if (seedStructures()) save();
   renderTemplates();
   renderItemMass();

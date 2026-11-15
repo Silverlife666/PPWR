@@ -231,6 +231,7 @@
       ready = false;
       status('Wylogowano. Odśwież stronę, aby rozpocząć nową sesję.');
     },
+    publicConfig: { url: URL, key: PUBLISHABLE_KEY },
     currentUser() { return user; },
     async uploadImage(dataUrl) {
       if (!ready) return dataUrl;
